@@ -9,11 +9,18 @@ import {
   clusterApiUrl,
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
   Transaction,
 } from '@solana/web3.js'
 import { NextApiRequest, NextApiResponse } from 'next'
-import { couponAddress, shopAddress, usdcAddress } from '../../lib/addresses'
+import {
+  couponAddress,
+  pointAddress,
+  shopAddress,
+  usdcAddress,
+} from '../../lib/addresses'
 import calculatePrice from '../../lib/calculatePrice'
 import base58 from 'bs58'
 
@@ -99,18 +106,18 @@ async function post(
     // If the buyer has at least 5 coupons, they can use them and get a discount
     const buyerGetsCouponDiscount = buyerCouponAccount.amount >= 5
 
-    // Get details about the USDC token
-    const usdcMint = await getMint(connection, usdcAddress)
-    // Get the buyer's USDC token account address
-    const buyerUsdcAddress = await getAssociatedTokenAddress(
-      usdcAddress,
-      buyerPublicKey
-    )
-    // Get the shop's USDC token account address
-    const shopUsdcAddress = await getAssociatedTokenAddress(
-      usdcAddress,
-      shopPublicKey
-    )
+    // // Get details about the USDC token
+    // const usdcMint = await getMint(connection, usdcAddress)
+    // // Get the buyer's USDC token account address
+    // const buyerUsdcAddress = await getAssociatedTokenAddress(
+    //   usdcAddress,
+    //   buyerPublicKey
+    // )
+    // // Get the shop's USDC token account address
+    // const shopUsdcAddress = await getAssociatedTokenAddress(
+    //   usdcAddress,
+    //   shopPublicKey
+    // )
 
     // Get a recent blockhash to include in the transaction
     const { blockhash } = await connection.getLatestBlockhash('finalized')
@@ -124,15 +131,24 @@ async function post(
     // If the buyer has the coupon discount, divide the amount in USDC by 2
     const amountToPay = buyerGetsCouponDiscount ? amount.dividedBy(2) : amount
 
-    // Create the instruction to send USDC from the buyer to the shop
-    const transferInstruction = createTransferCheckedInstruction(
-      buyerUsdcAddress, // source
-      usdcAddress, // mint (token address)
-      shopUsdcAddress, // destination
-      buyerPublicKey, // owner of source address
-      amountToPay.toNumber() * 10 ** usdcMint.decimals, // amount to transfer (in units of the USDC token)
-      usdcMint.decimals // decimals of the USDC token
-    )
+    // ===================================================================== //
+    // ================== Transfer with SOL ================================ //
+    const transferInstruction = SystemProgram.transfer({
+      fromPubkey: buyerPublicKey,
+      lamports: amount.multipliedBy(LAMPORTS_PER_SOL).toNumber(),
+      toPubkey: shopPublicKey,
+    })
+    // ===================================================================== //
+
+    // // Create the instruction to send USDC from the buyer to the shop
+    // const transferInstruction = createTransferCheckedInstruction(
+    //   buyerUsdcAddress, // source
+    //   usdcAddress, // mint (token address)
+    //   shopUsdcAddress, // destination
+    //   buyerPublicKey, // owner of source address
+    //   amountToPay.toNumber() * 10 ** usdcMint.decimals, // amount to transfer (in units of the USDC token)
+    //   usdcMint.decimals // decimals of the USDC token
+    // )
 
     // Add the reference to the instruction as a key
     // This will mean this transaction is returned when we query for the reference
@@ -172,6 +188,42 @@ async function post(
       isSigner: true,
       isWritable: false,
     })
+
+    // ============================================================================ //
+    // ========================= Add point ======================================== //
+    const pointAmount = Math.floor(amount.multipliedBy(100).div(3).toNumber())
+    if (pointAmount > 0) {
+      const buyerPointAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        shopKeypair, // shop pays the fee to create it
+        pointAddress, // which token the account is for
+        buyerPublicKey // who the token account belongs to (the buyer)
+      )
+
+      const shopPointAddress = await getAssociatedTokenAddress(
+        pointAddress,
+        shopAddress
+      )
+
+      const pointInstruction = createTransferCheckedInstruction(
+        shopPointAddress,
+        pointAddress,
+        buyerPointAccount.address,
+        shopPublicKey,
+        pointAmount,
+        0
+      )
+
+      pointInstruction.keys.push({
+        pubkey: shopPublicKey,
+        isSigner: true,
+        isWritable: false,
+      })
+
+      transaction.add(pointInstruction)
+    }
+    // ============================================================================ //
+    // ============================================================================ //
 
     // Add both instructions to the transaction
     transaction.add(transferInstruction, couponInstruction)

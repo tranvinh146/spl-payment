@@ -11,3 +11,7 @@ export const usdcAddress = new PublicKey(
 export const couponAddress = new PublicKey(
   '2SjswtGRxe89j7RT9EnB5zYGUMLepjRNieYQQoYvCc9F'
 )
+
+export const pointAddress = new PublicKey(
+  'GTCiH9GdLFhHhjgd13EDdkXGp7ZBkpkFeverTrzLBEC1'
+)

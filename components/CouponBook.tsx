@@ -5,16 +5,18 @@ import {
 } from '@solana/spl-token'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { useState, useEffect } from 'react'
-import { couponAddress } from '../lib/addresses'
+import { couponAddress, pointAddress } from '../lib/addresses'
 
 export default function CouponBook() {
   const { connection } = useConnection()
   const { publicKey } = useWallet()
   const [couponBalance, setCouponBalance] = useState(0)
+  const [pointBalance, setPointBalance] = useState(0)
 
   async function getCouponBalance() {
     if (!publicKey) {
       setCouponBalance(0)
+      setPointBalance(0)
       return
     }
 
@@ -27,8 +29,18 @@ export default function CouponBook() {
       const coupons =
         userCouponAccount.amount > 5 ? 5 : Number(userCouponAccount.amount)
 
-      console.log('balance is', coupons)
+      console.log('coupon is', coupons)
       setCouponBalance(coupons)
+
+      const userPointAddress = await getAssociatedTokenAddress(
+        pointAddress,
+        publicKey
+      )
+      const userPointAccount = await getAccount(connection, userPointAddress)
+      const points = Number(userPointAccount.amount)
+
+      console.log('point is', points)
+      setPointBalance(points)
     } catch (e) {
       if (e instanceof TokenAccountNotFoundError) {
         // This is ok, the API will create one when they make a payment
@@ -61,6 +73,10 @@ export default function CouponBook() {
             <span key={i}>⚪</span>
           ))}
         </p>
+      </div>
+
+      <div className="flex flex-col items-center rounded-md bg-gray-900 p-1 text-white">
+        Point: {pointBalance} EPT
       </div>
     </>
   )
